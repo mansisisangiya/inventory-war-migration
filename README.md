@@ -35,7 +35,7 @@ docs/       MIGRATION_LOG.md (and PLAYBOOK.md at the end)
 | Tag | State |
 |---|---|
 | `v11-baseline` | Angular 11 app, all checks green |
-| `v11-war` | v11 packaged as one WAR _(next)_ |
+| `v11-war` | v11 packaged as one WAR, tested with `java -jar` and on Tomcat 9 |
 | `v12-done` … `v17-done` | One tag per upgrade step _(planned)_ |
 | `v17-war` | v17 packaged as one WAR _(planned)_ |
 
@@ -52,14 +52,14 @@ docs/       MIGRATION_LOG.md (and PLAYBOOK.md at the end)
 
 ## Run it (v11)
 
-**1. Backend** (port 8080):
+**1. Backend** (port 8080, served under `/inventory`). The two flags skip the Angular build, which takes minutes:
 
 ```bash
 cd backend
-mvn spring-boot:run
+mvn spring-boot:run -Dskip.installnodenpm -Dskip.npm
 ```
 
-**2. Frontend dev server** (port 4200, `/api` is proxied to 8080):
+**2. Frontend dev server** (port 4200, `/api` is proxied to `localhost:8080/inventory/api`):
 
 ```bash
 cd frontend
@@ -70,6 +70,29 @@ npx ng serve
 
 Open http://localhost:4200.
 
+## Build and run the WAR
+
+`mvn package` builds the Angular app (Node 14 is downloaded automatically into `backend/.frontend-tools/`), copies it into
+the Spring Boot app and produces one file, `backend/target/inventory.war`:
+
+```bash
+cd backend
+mvn clean package
+```
+
+Run it either way. Both serve the app at http://localhost:8080/inventory/.
+
+| How | Command |
+|---|---|
+| Executable WAR (embedded Tomcat) | `java -jar target/inventory.war` |
+| External Tomcat 9 | copy `target/inventory.war` into Tomcat's `webapps/`, then start Tomcat (`catalina run`) |
+
+To run the e2e tests against the WAR instead of the dev server: `cd frontend && npm run e2e:war`.
+
+How it's wired: Angular's `outputPath` points at `backend/src/main/resources/static`, the `build:war` npm script adds
+`--base-href /inventory/`, and `frontend-maven-plugin` in `backend/pom.xml` runs `npm ci` and `npm run build:war` before
+Maven packages the WAR. Details in the migration log.
+
 ## Checks
 
 From `frontend/` with `nvm use 14`:
@@ -79,7 +102,8 @@ From `frontend/` with `nvm use 14`:
 | Production build | `npx ng build --prod` |
 | Lint (TSLint) | `npx ng lint` |
 | Unit tests (headless) | `npm run test:ci` |
-| E2E (needs the backend running) | `npm run e2e` |
+| E2E against the dev server (needs the backend running) | `npm run e2e` |
+| E2E against the WAR (needs the WAR running) | `npm run e2e:war` |
 
 Backend tests: `cd backend && mvn test`.
 
@@ -97,3 +121,4 @@ nvm use 14
 
 Find your Chrome version at `chrome://version`. The driver folder is git-ignored.
 To watch the tests in a visible browser, run `E2E_HEADED=1 npm run e2e`. A full run takes under a minute.
+If it suddenly takes much longer, check for other busy processes on the machine first.

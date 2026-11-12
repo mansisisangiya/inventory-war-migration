@@ -110,7 +110,78 @@ Protractor 7, Karma 6.1 · Node 14.21.3 (x64 under Rosetta), npm 6.14 · Spring 
 ---
 
 ## v11 WAR (tag `v11-war`)
-_Not started._
+
+**Goal:** one `inventory.war` that contains the Angular app and the Spring Boot backend, like the legacy apps.
+
+### [v11-war] How the WAR is built (what changed)
+| File | Change | Why |
+|---|---|---|
+| `frontend/angular.json` | `outputPath` → `../backend/src/main/resources/static` | Angular output lands where Spring Boot serves static files |
+| `frontend/package.json` | New script `build:war` = `ng build --prod --base-href /inventory/` | The app runs under `/inventory/`, so asset and API URLs need that base |
+| `backend/pom.xml` | `frontend-maven-plugin`: install Node 14 → `npm ci` → `npm run build:war` (phase `generate-resources`) | `mvn package` builds frontend + backend in one go |
+| `backend/.../application.properties` | `server.servlet.context-path=/inventory` | `java -jar` uses the same URL as Tomcat, where the path comes from the file name `inventory.war` |
+| `frontend/proxy.conf.json` | `pathRewrite` `/api` → `/inventory/api` | See next entry |
+| `.gitignore` | `backend/src/main/resources/static/`, `backend/.frontend-tools/` | Build output and downloaded Node are not committed |
+
+Already in place from the baseline: `<packaging>war</packaging>`, `spring-boot-starter-tomcat` as `provided`,
+`ServletInitializer` (entry point on external Tomcat) and `SpaForwardingController` (reload on `/items/2/edit` works).
+
+### [v11-war] Context path broke the dev-server proxy
+- **Symptom:** After adding `server.servlet.context-path=/inventory`, `ng serve` could no longer reach the API (`/api/items` → 404).
+- **Cause:** The proxy forwarded `/api/...` to `localhost:8080/api/...`, but the backend now lives under `/inventory`.
+- **Fix:** `"pathRewrite": { "^/api": "/inventory/api" }` in `frontend/proxy.conf.json`.
+- **Automatic or manual:** Manual.
+- **Effort:** 10 min.
+- **Note for real apps:** Check every proxy config and hard-coded URL when a context path is involved.
+  Using relative API URLs (`api/items`, not `/api/items`) is what let the built app work under `/inventory/` without code changes.
+
+### [v11-war] frontend-maven-plugin handled Apple Silicon by itself
+- **Symptom:** None. The expected failure (no Apple Silicon build of Node 14 to download) did not happen.
+- **Cause:** `frontend-maven-plugin` 1.15.1 downloads the x64 build (`node-v14.21.3-darwin-x64`) on Apple Silicon for old Node versions.
+- **Fix:** None needed.
+- **Automatic or manual:** Automatic.
+- **Effort:** 0.
+- **Note for real apps:** Pin the Node and npm versions in the pom (`frontend.node.version`, `frontend.npm.version`) and
+  change them at each upgrade step together with `.nvmrc` / nvm.
+
+### [v11-war] Maven build is slow under Rosetta
+- **Symptom:** `mvn clean package` takes ≈ 6½ min.
+- **Cause:** `npm ci` (≈ 2¾ min, 1,467 packages) and `ng build --prod` (≈ 2½ min) on Node 14 x64 under Rosetta.
+- **Fix:** For backend-only work, skip the frontend build: `mvn spring-boot:run -Dskip.installnodenpm -Dskip.npm`
+  (backend up in ≈ 6 s instead of minutes).
+- **Automatic or manual:** Manual.
+- **Effort:** 0 (awareness only).
+- **Note for real apps:** Linux x64 CI will be faster. Newer Angular versions on native Node should also build faster.
+
+### [v11-war] External Tomcat sends HTML as ISO-8859-1, not UTF-8
+- **Symptom:** `java -jar` serves `index.html` as `text/html;charset=UTF-8`; Tomcat 9 serves it as `text/html;charset=ISO-8859-1`,
+  and the browser reads the page as `windows-1252` (the HTTP header wins over `<meta charset="utf-8">`).
+- **Cause:** Embedded Tomcat is configured by Spring Boot with UTF-8; standalone Tomcat uses its own default.
+- **Fix:** Not changed. It is harmless here: the only non-English character (the ✓ in the "Saved" message) is stored as `\u2713`
+  in the production bundle and displays correctly.
+- **Automatic or manual:** Not applicable.
+- **Effort:** 15 min (investigation).
+- **Note for real apps:** Behaviour can differ between `java -jar` and the real Tomcat servers. Test the WAR on a Tomcat like
+  production, especially pages with non-English text.
+
+### [v11-war] Background CPU load makes headless e2e extremely slow
+- **Symptom:** E2E specs that normally take ≈ 25 s timed out; headless Chrome needed ≈ 58 s just to parse the page.
+  The dev server was equally slow, so it was not the WAR.
+- **Cause:** Other processes on the Mac (a local dev server with auto-reload at ≈ 60 % CPU, Spotlight indexing) starved
+  the background Chrome.
+- **Fix:** Stop heavy background processes before running e2e. Afterwards: 2/2 specs in ≈ 24 s.
+- **Automatic or manual:** Manual.
+- **Effort:** 1 h (most of it spent ruling out the WAR, fonts and network).
+- **Note for real apps:** When e2e suddenly gets slow, check machine load before debugging the app.
+
+### [v11-war] Result
+| Check | How | Result |
+|---|---|---|
+| Build | `cd backend && mvn clean package` | ✅ `target/inventory.war`, 19 MB, `<base href="/inventory/">` |
+| Run with `java -jar` | `java -jar target/inventory.war` → http://localhost:8080/inventory/ | ✅ pages, reload on `/items/2/edit`, API, 404 |
+| E2E on `java -jar` | `npm run e2e:war` | ✅ 2/2 in ≈ 23 s |
+| Run on external Tomcat 9.0.123 | copy WAR to `webapps/` → http://localhost:8080/inventory/ | ✅ deployed via `ServletInitializer` in ≈ 1.4 s; same checks pass |
+| E2E on Tomcat | `npm run e2e:war` | ✅ 2/2 in ≈ 24 s |
 
 ## v12 … v17
 _Not started._

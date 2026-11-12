@@ -8,7 +8,9 @@
     "test": "ng test",
     "lint": "ng lint",
     "e2e": "ng e2e --webdriver-update=false",
-    "test:ci": "ng test --watch=false --browsers=ChromeHeadless"
+    "test:ci": "ng test --watch=false --browsers=ChromeHeadless",
+    "build:war": "ng build --prod --base-href /inventory/",
+    "e2e:war": "protractor e2e/protractor.conf.js --baseUrl=http://localhost:8080/inventory/"
   },
   "private": true,
   "dependencies": {

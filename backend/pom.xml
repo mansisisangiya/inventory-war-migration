@@ -19,6 +19,9 @@
 
   <properties>
     <java.version>17</java.version>
+    <!-- Node/npm used by Maven to build the Angular app (must match what the Angular version supports) -->
+    <frontend.node.version>v14.21.3</frontend.node.version>
+    <frontend.npm.version>6.14.18</frontend.npm.version>
   </properties>
 
   <dependencies>
@@ -49,6 +52,47 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!--
+        Builds the Angular app as part of `mvn package`:
+        install Node -> npm ci -> npm run build:war.
+        Angular writes its output to src/main/resources/static (see frontend/angular.json "outputPath"),
+        which Maven then copies into the WAR. Runs in generate-resources, i.e. before resources are copied.
+        Skip it with: -Dskip.installnodenpm -Dskip.npm
+      -->
+      <plugin>
+        <groupId>com.github.eirslett</groupId>
+        <artifactId>frontend-maven-plugin</artifactId>
+        <version>1.15.1</version>
+        <configuration>
+          <workingDirectory>${project.basedir}/../frontend</workingDirectory>
+          <installDirectory>${project.basedir}/.frontend-tools</installDirectory>
+        </configuration>
+        <executions>
+          <execution>
+            <id>install-node-and-npm</id>
+            <goals><goal>install-node-and-npm</goal></goals>
+            <configuration>
+              <nodeVersion>${frontend.node.version}</nodeVersion>
+              <npmVersion>${frontend.npm.version}</npmVersion>
+            </configuration>
+          </execution>
+          <execution>
+            <id>npm-ci</id>
+            <goals><goal>npm</goal></goals>
+            <configuration>
+              <arguments>ci</arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>npm-build-war</id>
+            <goals><goal>npm</goal></goals>
+            <configuration>
+              <arguments>run build:war</arguments>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
